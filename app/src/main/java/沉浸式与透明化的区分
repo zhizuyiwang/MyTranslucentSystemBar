@@ -1,0 +1,163 @@
+沉浸式全屏模式
+隐藏status bar（状态栏）使屏幕全屏，让Activity接收所有的（整个屏幕的）触摸事件。
+透明化系统栏
+透明化系统栏，使得布局侵入系统栏的后面，必须启用fitsSystemWindows属性来调整布局才不至于被系统栏覆盖。
+
+如何在4.4以上中实现Translucent Bar
+为什么要强调4.4呢？其一是Translucent Bar是4.4开始有的特性；其二是5.0开始，Google推出Material Design，
+使用Theme.Material（MD主题）或Theme.AppCompat主题并至少设置ColorPrimaryDark属性就可以实现status bar半透明效果。
+
+1、跟着官方走
+    第一步. 使用主题：Theme.Holo.NoActionBar.Translucent：
+    只是设置了属性 windowTranslucentStatus 和 windowTranslucentNavigation 为true，
+    我们可以不用官方说的主题，但是必须设置那两个属性的值为true才行，以便使我们定义的layout侵入系统栏的领域。
+    什么是系统栏（system bar）？系统栏包含了顶部状态栏和底部导航栏。
+
+    第二步. 设置 fitsSystemWindows 属性为true来进行布局调整：
+    就是哪个view设置了这个属性为true，系统就会调整该view的padding值来留出空间给系统窗体。表现为，padding出status bar的高度
+    给status bar使用，不至于我们定义layout跟status bar重叠！
+    值的一提的是：该属性最好是用在我们需要进行调整的view中，而不是在theme中设置，因为theme设置的是整个窗体的属性，会影响使用了
+    该theme的activity或application的行为，造成依附于Application Window的Window（比如Toast）错位。
+    还有当Activity的ContentView中嵌套的layout有好几处使用了该属性时，会发生奇怪的错位问题。
+    记住：只在需要padding出空间给system bar的layout添加该属性！
+
+    第三步，注意的问题：
+    Toast错位的解决方法如下：使用应用级别的上下文
+    Toast.makeText(getApplicationContext(),"toast sth...",Toast.LENGTH_SHORT).show();
+
+ 2、跟着民间大神走
+    第一步：在res/values/文件夹中添加style-v19.xml，开启透明栏
+    <resources>
+        <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+            <item name="android:windowTranslucentStatus">true</item>
+            <item name="android:windowTranslucentNavigation">true</item>
+        </style>
+    </resources>
+    第二步. 在基类中完成布局调整的工作
+    public abstract class TranslucentBarBaseActivity extends AppCompatActivity {
+
+        @Override
+        protected void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
+
+            setContentView(getLayoutResId());//把设置布局文件的操作交给继承的子类
+
+            ViewGroup contentFrameLayout = (ViewGroup) findViewById(Window.ID_ANDROID_CONTENT);
+            View parentView = contentFrameLayout.getChildAt(0);
+            if (parentView != null && Build.VERSION.SDK_INT >= 14) {
+                parentView.setFitsSystemWindows(true);
+            }
+        }
+
+        /**
+         * 返回当前Activity布局文件的id
+         *
+         * @return
+         */
+        abstract protected int getLayoutResId();
+    }
+    将设置内容布局的操作交给子类，而基类获取内容布局的根布局，判断是否为4.4或以上的运行环境，
+    再设置fitsSystemWindows属性为true，达到调整内容布局的目的。
+
+ 3、自己做
+    第一步：设置主题，
+
+    第二步:自己fitsSystemWindows，不用系统帮我
+    public class BaseActivity extends AppCompatActivity {
+        @Override
+        protected void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.KITKAT){
+                ViewGroup firstChildAtDecorView = ((ViewGroup) ((ViewGroup)getWindow().getDecorView()).getChildAt(0));
+                View statusView = new View(this);
+                ViewGroup.LayoutParams statusViewLp = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        getStatusBarHeight());
+                //颜色的设置可抽取出来让子类实现之
+                statusView.setBackgroundColor(getResources().getColor(android.R.color.holo_blue_light));
+                firstChildAtDecorView.addView(statusView, 0, statusViewLp);
+            }
+        }
+        private int getStatusBarHeight() {
+            int resId = getResources().getIdentifier("status_bar_height","dimen","android");
+            if(resId>0){
+                return getResources().getDimensionPixelSize(resId);
+            }
+            return 0;
+        }
+    }
+    Activity持有一个PhoneWindow，PhoneWindow持有一个根View，叫DecorView（是一个FrameLayout），
+    DecorView持有一个LinearLayout，在LinearLayout下分配两个FrameLayout，一个给ActionBar（当设置主题为NoActionBar是为ViewStub），
+    一个给ContentView。不管如何，只要我们在LinearLayout的第一个位置插入一个View就可以让ContentView下移了！！
+
+============================================================================================================================
+
+
+ 总结：
+ 要在Activity中使用 Translucent System Bar 特性，首先需要到AndroidManifest中为指定的Activity设置Theme。
+ 但是需要注意的是，我们不能直接在values/style.xml直接去自定义 Translucent System Bar 的Theme，因为改特性仅兼容 Android 4.4 开始的平台，
+ 所以直接在values/style.xml声明引入，工程会报错。有些开发者朋友会在代码中去判断SDK的版本，然后再用代码设置Theme。虽然同样可以实现效果，
+ 但个人并不推崇这种做法。我所采取的方法则是建立多个SDK版本的values文件夹，系统会根据SDK的版本选择合适的Theme进行设置。
+ 大家可以看到上面我的工程里面有values、values-v19、values-v21。
+
+ 第一种方式：设置透明的状态栏（透明式状态栏）
+ 1、在values、values-v19、values-v21的style.xml都设置一个 Translucent System Bar 风格的Theme
+
+ values/style.xml
+
+ <style name="ImageTranslucentTheme" parent="AppTheme">
+     <!--在Android 4.4之前的版本上运行，直接跟随系统主题-->
+ </style>
+ values-v19/style.xml
+
+ <style name="ImageTranslucentTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+     <item name="android:windowTranslucentStatus">true</item>
+     <item name="android:windowTranslucentNavigation">true</item>
+ </style>
+ values-v21/style.xml
+
+ <style name="ImageTranslucentTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+     <item name="android:windowTranslucentStatus">false</item>
+     <item name="android:windowTranslucentNavigation">true</item>
+     <!--Android 5.x开始需要把颜色设置透明，否则导航栏会呈现系统默认的浅灰色-->
+     <item name="android:statusBarColor">@android:color/transparent</item>
+ </style>
+ 上面需要注意的地方是，无论你在哪个SDK版本的values目录下，设置了主题，都应该在最基本的values下设置一个同名的主题。这样才能确保你的app能够正常运行在 Android 4.4 以下的设备。否则，肯定会报找不到Theme的错误。
+
+ 2、在AndroidManifest.xml中对指定Activity的theme进行设置
+
+ <activity
+     android:name=".ui.ImageTranslucentBarActivity"
+     android:label="@string/image_translucent_bar"
+     android:theme="@style/ImageTranslucentTheme" />
+ 3、在Activity的布局文件中设置背景图片，同时，需要把android:fitsSystemWindows设置为true
+
+ activity_image_translucent_bar.xml
+
+ <?xml version="1.0" encoding="utf-8"?>
+ <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     android:layout_width="match_parent"
+     android:layout_height="match_parent"
+     android:background="@mipmap/env_bg"
+     android:fitsSystemWindows="true">
+
+ </RelativeLayout>
+
+第二种方式：设置有颜色的状态栏（沉浸式状态）
+    第一步：去到界面的布局文件中，将布局划分成为标题布局和内容布局两部分；
+
+    第二步：将界面的根布局颜色设置与标题布局的颜色一致，并将内容布局设置为白色；
+
+
+
+
+
+
+
+
+
+
+
+
+
+
